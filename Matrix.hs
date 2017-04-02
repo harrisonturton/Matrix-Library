@@ -1,93 +1,164 @@
 module Matrix
-( Matrix
-, matAdd
-, matSub
-, matMult
-, matMult'
-, matNeg
-, matAbs
-, matSig
-, matTranspose
+( mDoElementWise
+, mZipWith
+, mAdd
+, mMultiply
+, mAbs
+, mSignum
 , numCols
 , numRows
-, getCol
+, getElem
+, getColumn
 , getRow
+, appendCol
+, prependCol
+, appendRow
+, prependRow
+, insertCol
+, insertRow
+, replaceCol
+, replaceRow
+, newMatrix
+, getMinors
+, getMinor
+, removeRow
+, removeCol
 ) where
 
 import Data.List
+import Data.List.Split
 
-data Matrix a = Matrix [[a]]
+--------------------------------------------------
+-- Matrix type & instance declarations
+--------------------------------------------------
 
-instance Num a => Num (Matrix a)
-	where
-		(Matrix a) + (Matrix b) = Matrix $ matAdd  a b
-		(Matrix a) - (Matrix b) = Matrix $ matSub  a b
-		(Matrix a) * (Matrix b) = Matrix $ matMult' a b
-		negate 		 (Matrix a)	= Matrix $ matNeg  a
-		abs  		 (Matrix a)	= Matrix $ matAbs  a
-		signum 		 (Matrix a) = Matrix $ matSig  a
-		fromInteger				= undefined
+newtype Matrix a = M [[a]]
 
-instance Show a => Show (Matrix a)
-	where
-		show (Matrix a) = intercalate "\n" $ map (unwords . map show) a
+instance Num a => Num (Matrix a) where
+  (+)         = mAdd
+  (-)         = mSubtract
+  (*)         = mMultiply
+  abs         = mAbs
+  signum      = mSignum
+  fromInteger = undefined
 
--- Add each element of two matrices together
-matAdd :: Num a => [[a]] -> [[a]] -> [[a]]
-matAdd = zipWith (zipWith (+))
+instance Show a => Show (Matrix a) where
+    show (M a)  = intercalate "\n" $ map (unwords . map show) a
+    showList [] = id
+    showList (m:ms) = shows m . (",\n" ++) . showList ms
 
--- Subtract each element from the two matrices
-matSub :: Num a => [[a]] -> [[a]] -> [[a]]
-matSub = zipWith (zipWith (-))
+--------------------------------------------------
+-- Polymorphic functions
+--------------------------------------------------
 
-{-a = Matrix [[2,4,9],[3,6,2]]
-b = Matrix [[3],[6],[2]]-}
+-- Perform a function on every element
+mDoElementWise :: (a -> a) -> Matrix a -> Matrix a
+mDoElementWise f (M a) = M $ map (map f) a
 
--- Element-wise multiplication of two matrices
-matMult :: Num a => [[a]] -> [[a]] -> [[a]]
-matMult a b = getAllRows a b $ numRows a - 1
-	where
-		getSingleRow :: Num a => [[a]] -> [[a]] -> Int -> [a]
-		getSingleRow a1 b1 n = map (multRowCol (getRow a1 n)) [getCol b1 x | x <- [0..(numCols b1 - 1)]]
-		getAllRows :: Num a => [[a]] -> [[a]] -> Int -> [[a]]
-		getAllRows a1 b1 0 = [getSingleRow a1 b1 0]
-		getAllRows a1 b1 n = getAllRows a1 b1 (n - 1) ++ [getSingleRow a1 b1 n]
+-- Join two matrices with a function 
+mZipWith :: (a -> a -> a) -> Matrix a -> Matrix a -> Matrix a
+mZipWith f (M a) (M b) = M $ zipWith (zipWith f) a b
 
+--------------------------------------------------
+-- Alegbraic Operations
+--------------------------------------------------
 
-getSingleElem :: Num a => [[a]] -> [[a]] -> Int -> Int -> a
-getSingleElem a1 b1 x y = sum $ zipWith (*) (getRow a1 y) (getCol b1 x)
+mAdd :: Num a => Matrix a -> Matrix a -> Matrix a
+mAdd = mZipWith (+)
 
-multRowCol :: (Num a) => [a] -> [a] -> a
-multRowCol a b = sum $ zipWith (*) a b
+mSubtract :: Num a => Matrix a -> Matrix a -> Matrix a
+mSubtract = mZipWith (-)
 
--- Negate each element in matrix
-matNeg :: Num a => [[a]] -> [[a]]
-matNeg = map $ map negate
+-- Elementwise multiplication
+mMultiply :: Num a => Matrix a -> Matrix a -> Matrix a
+mMultiply (M a) (M b) =
+  M $ transpose [ [sum (zipWith (*) x y) | x <- a] | y <- transpose b]
 
--- Absolute value of each element in matrix
-matAbs :: Num a => [[a]] -> [[a]]
-matAbs = map $ map abs
+mAbs :: Num a => Matrix a -> Matrix a
+mAbs = mDoElementWise abs
 
--- Signum of each element in matrix
-matSig :: Num a => [[a]] -> [[a]]
-matSig = map $ map signum
+mSignum :: Num a => Matrix a -> Matrix a
+mSignum = mDoElementWise signum
 
--- Transpose the matrix
-matTranspose :: Num a => [[a]] -> [[a]]
-matTranspose = transpose
+--------------------------------------------------
+-- Mathematics
+--------------------------------------------------
 
--- Get the number of columns in a matrix
-numCols :: [[a]] -> Int
-numCols a = length $ head a
+{-determinant :: Num a => Matrix a -> a
+determinant (M [[a,b],[c,d]]) = a * d - b * c
+determinant mat@(M a) = sum $ zipWith (*) (head a) $ zipWith (*) coefficient $ map determinant $ getMinors mat
+  where coefficient = intercalate [-1] $ replicate (numCols mat) [1]-}
 
--- Get the number of rows in a matrix
-numRows :: [[a]] -> Int
-numRows = length
+getMinors :: Matrix a -> [Matrix a]
+getMinors mat = minors mat $ numCols mat - 1
+  where minors :: Matrix a -> Int -> [Matrix a]
+        minors m 0 = [getMinor 0 0 m]
+        minors m n = minors m (n - 1) ++ [getMinor 0 n m]
 
--- Get column j from matrix
-getCol :: [[a]] -> Int -> [a]
-getCol mat j = map (!! j) mat
+newMatrix :: Int -> Matrix Int
+newMatrix n = M $ chunksOf n [1..n*n]
 
--- Get row i from matrix
-getRow :: [[a]] -> Int -> [a]
-getRow mat i = mat !! i
+getMinor :: Int -> Int -> Matrix a -> Matrix a
+getMinor x y mat = removeRow x $ removeCol y mat
+
+--------------------------------------------------
+-- Matrix Manipulation
+--------------------------------------------------
+
+numCols :: Matrix a -> Int
+numCols (M a) = length $ transpose a
+
+numRows :: Matrix a -> Int
+numRows (M a) = length a
+
+getElem :: Matrix a -> Int -> Int -> a
+getElem (M a) x y = (a !! x) !! y
+
+getColumn :: Int -> Matrix a -> Matrix a
+getColumn n (M a) = M [transpose a !! n]
+
+getRow :: Int -> Matrix a -> Matrix a
+getRow n (M a) = M [a !! n]
+
+appendCol :: Matrix a -> Matrix a -> Matrix a
+appendCol (M a) (M b) = M $ transpose $ transpose a ++ b
+
+appendRow :: Matrix a -> Matrix a -> Matrix a
+appendRow (M a) (M b) = M $ a ++ b
+
+prependRow :: Matrix a -> Matrix a -> Matrix a
+prependRow (M a) (M b) = M $ b ++ a
+
+prependCol :: Matrix a -> Matrix a -> Matrix a
+prependCol (M a) (M b) = M $ transpose $ b ++ transpose a
+
+insertRow :: Int -> Matrix a -> Matrix a -> Matrix a
+insertRow n (M a) (M b) = M $ fst splitA ++ b ++ snd splitA
+  where splitA = splitAt n a
+
+insertCol :: Int ->  Matrix a -> Matrix a -> Matrix a
+insertCol n (M a) (M b) = M $ transpose $ fst splitA ++ b ++ snd splitA
+  where splitA = splitAt n $ transpose a
+
+replaceRow :: Int -> Matrix a -> Matrix a -> Matrix a
+replaceRow n (M a) (M b) = M $ firstHalf ++ b ++ secondHalf
+  where firstHalf  = fst $ splitAt  n      a
+        secondHalf = snd $ splitAt (n + 1) a
+
+replaceCol :: Int -> Matrix a -> Matrix a -> Matrix a
+replaceCol n (M a) (M b) = M $ transpose $ firstHalf ++ b ++ secondHalf
+  where firstHalf  = fst $ splitAt  n      $ transpose a
+        secondHalf = snd $ splitAt (n + 1) $ transpose a
+
+removeRow :: Int -> Matrix a -> Matrix a
+removeRow n (M a) = M $ firstHalf ++ secondHalf
+  where firstHalf  = fst $ splitAt  n      a
+        secondHalf = snd $ splitAt (n + 1) a
+
+removeCol :: Int -> Matrix a -> Matrix a
+removeCol n (M a) = M $ transpose $ firstHalf ++ secondHalf
+  where firstHalf  = fst $ splitAt  n      $ transpose a
+        secondHalf = snd $ splitAt (n + 1) $ transpose a
+
+mTranspose :: Matrix a -> Matrix a
+mTranspose (M a) = M $ transpose a
